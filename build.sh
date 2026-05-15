@@ -8,21 +8,15 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Nginx 自动双架构构建并打包脚本${NC}"
+echo -e "${GREEN}Nginx 绿色版构建工具 (含一键启动脚本)${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # 1. 自动获取最新版本号
-echo -e "${YELLOW}正在检测 Nginx 最新源码版本...${NC}"
 NGINX_VERSION=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+[ -z "$NGINX_VERSION" ] && NGINX_VERSION="1.31.0"
+echo -e "${GREEN}检测到最新版本: ${NGINX_VERSION}${NC}"
 
-if [ -z "$NGINX_VERSION" ]; then
-    NGINX_VERSION="1.31.0"
-    echo -e "${RED}抓取失败，回退到默认版本: ${NGINX_VERSION}${NC}"
-else
-    echo -e "${GREEN}检测到最新版本: ${NGINX_VERSION}${NC}"
-fi
-
-# 2. 环境清理与目录准备
+# 2. 环境清理
 OUTPUT_BASE="output"
 rm -rf "${OUTPUT_BASE}"
 mkdir -p "${OUTPUT_BASE}/amd64" "${OUTPUT_BASE}/arm64"
@@ -31,29 +25,58 @@ mkdir -p "${OUTPUT_BASE}/amd64" "${OUTPUT_BASE}/arm64"
 cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
 FROM alpine:3.19 AS builder
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache \
-    gcc musl-dev pcre-dev openssl-dev openssl-libs-static \
-    zlib-dev zlib-static linux-headers make wget curl \
-    build-base libc-dev tar
+RUN apk add --no-cache gcc musl-dev pcre-dev openssl-dev openssl-libs-static \
+    zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar
 
 WORKDIR /build
 ARG NGINX_VERSION
 RUN wget -q https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
-    tar xzf nginx-${NGINX_VERSION}.tar.gz && \
-    mv nginx-${NGINX_VERSION} nginx
+    tar xzf nginx-${NGINX_VERSION}.tar.gz && mv nginx-${NGINX_VERSION} nginx
 
 WORKDIR /build/nginx
 RUN ./configure \
     --prefix=/usr/local/nginx \
+    --sbin-path=sbin/nginx \
+    --conf-path=conf/nginx.conf \
+    --pid-path=logs/nginx.pid \
+    --lock-path=logs/nginx.lock \
+    --error-log-path=logs/error.log \
+    --http-log-path=logs/access.log \
+    --http-client-body-temp-path=temp/client_body \
+    --http-proxy-temp-path=temp/proxy \
+    --http-fastcgi-temp-path=temp/fastcgi \
+    --http-uwsgi-temp-path=temp/uwsgi \
+    --http-scgi-temp-path=temp/scgi \
     --with-http_ssl_module \
     --with-http_v2_module \
-    --with-http_realip_module \
+    --with-http_flv_module \
+    --with-http_stub_status_module \
     --with-http_gzip_static_module \
     --with-pcre \
     --with-cc-opt="-static -O3" \
     --with-ld-opt="-static"
 
 RUN make -j$(nproc) && make install DESTDIR=/output
+
+# --- 关键步骤：生成便捷脚本 ---
+WORKDIR /output/usr/local/nginx
+RUN mkdir -p logs temp/client_body temp/proxy temp/fastcgi temp/uwsgi temp/scgi && \
+    chmod -R 777 logs temp
+
+# 创建一键启动脚本
+RUN echo '#!/bin/sh' > start.sh && \
+    echo 'BASE_DIR=$(cd "$(dirname "$0")"; pwd)' >> start.sh && \
+    echo 'echo "正在启动 Nginx (目录: $BASE_DIR)..."' >> start.sh && \
+    echo '$BASE_DIR/sbin/nginx -p "$BASE_DIR" -c "$BASE_DIR/conf/nginx.conf"' >> start.sh && \
+    echo 'echo "启动成功！访问: http://localhost:80"' >> start.sh && \
+    chmod +x start.sh
+
+# 创建一键停止脚本
+RUN echo '#!/bin/sh' > stop.sh && \
+    echo 'BASE_DIR=$(cd "$(dirname "$0")"; pwd)' >> stop.sh && \
+    echo '$BASE_DIR/sbin/nginx -p "$BASE_DIR" -s stop' >> stop.sh && \
+    echo 'echo "Nginx 已停止。"' >> stop.sh && \
+    chmod +x stop.sh
 
 FROM alpine:3.19
 COPY --from=builder /output/usr/local/nginx /usr/local/nginx
@@ -65,45 +88,22 @@ build_and_pack() {
     local arch=$1
     local platform=$2
     local target_dir="${OUTPUT_BASE}/${arch}"
-    local tar_name="nginx-${NGINX_VERSION}.tar.gz"
+    local tar_name="nginx-${NGINX_VERSION}-portable-${arch}.tar.gz"
     
-    echo -e "${YELLOW}开始构建 ${arch} 版本...${NC}"
-    docker build \
-        --platform "${platform}" \
-        --build-arg NGINX_VERSION="${NGINX_VERSION}" \
-        -t "nginx-build-${arch}" \
-        -f Dockerfile.nginx .
+    echo -e "${YELLOW}正在构建 ${arch}...${NC}"
+    docker build --platform "${platform}" --build-arg NGINX_VERSION="${NGINX_VERSION}" -t "nginx-p-${arch}" -f Dockerfile.nginx .
     
-    echo -e "${YELLOW}提取 ${arch} 文件...${NC}"
-    docker run --rm --platform "${platform}" "nginx-build-${arch}" tar -C /usr/local/nginx -cf - . | tar -C "${target_dir}" -xf -
-    
-    echo -e "${YELLOW}正在生成压缩包: ${arch}/${tar_name}...${NC}"
-    # 进入架构目录进行打包，确保解压后不带多余的路径层级
-    (cd "${target_dir}" && tar -czf "${tar_name}" ./*)
-    
-    # 清理掉解压出的原始文件（可选），只保留压缩包
-    # find "${target_dir}" -maxdepth 1 ! -name "${tar_name}" ! -path "${target_dir}" -exec rm -rf {} +
-    
-    echo -e "${GREEN}${arch} 处理完成！${NC}"
+    echo -e "${YELLOW}提取并生成压缩包...${NC}"
+    docker run --rm --platform "${platform}" "nginx-p-${arch}" tar -C /usr/local/nginx -cf - . | tar -C "${target_dir}" -xf -
+    (cd "${target_dir}" && tar -czf "../${tar_name}" .)
+    rm -rf "${target_dir}"
+    echo -e "${GREEN}完成: output/${tar_name}${NC}"
 }
 
-# 5. 执行 amd64 和 arm64 的构建
+# 5. 执行
 build_and_pack "amd64" "linux/amd64"
 build_and_pack "arm64" "linux/arm64"
 
-# 6. 结果展示
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}✅ 所有架构构建并打包完成！${NC}"
-echo -e "${YELLOW}文件清单:${NC}"
-ls -lh ${OUTPUT_BASE}/amd64/nginx-${NGINX_VERSION}.tar.gz
-ls -lh ${OUTPUT_BASE}/arm64/nginx-${NGINX_VERSION}.tar.gz
-
-echo -e "\n${GREEN}架构校验:${NC}"
-# 从生成的压缩包中直接读取二进制信息
-tar -xOzf "${OUTPUT_BASE}/amd64/nginx-${NGINX_VERSION}.tar.gz" ./sbin/nginx | file - | sed "s/-/amd64 version:/"
-tar -xOzf "${OUTPUT_BASE}/arm64/nginx-${NGINX_VERSION}.tar.gz" ./sbin/nginx | file - | sed "s/-/arm64 version:/"
+echo -e "${GREEN}构建成功！产物已包含 start.sh / stop.sh${NC}"
 echo -e "${GREEN}========================================${NC}"
-
-if [ -n "$GITHUB_ACTIONS" ]; then
-    echo "NGINX_VER=$NGINX_VERSION" >> $GITHUB_ENV
-fi
