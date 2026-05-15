@@ -39,8 +39,10 @@ case ${TARGET_ARCH} in
         ;;
 esac
 
-# 创建 Dockerfile
-cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
+echo -e "${GREEN}平台: ${PLATFORM}${NC}"
+
+# 创建 Dockerfile（直接使用变量，不用 sed 替换）
+cat > Dockerfile.nginx << DOCKERFILE_EOF
 FROM --platform=${PLATFORM} alpine:3.19 AS builder
 
 ARG NGINX_VERSION
@@ -63,11 +65,11 @@ RUN apk add --no-cache \
 WORKDIR /build
 
 # 下载 Nginx 源码
-RUN echo "==> 下载 Nginx ${NGINX_VERSION} 源码..." && \
-    wget -q https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
-    tar xzf nginx-${NGINX_VERSION}.tar.gz && \
-    mv nginx-${NGINX_VERSION} nginx && \
-    rm nginx-${NGINX_VERSION}.tar.gz
+RUN echo "==> 下载 Nginx \${NGINX_VERSION} 源码..." && \
+    wget -q https://nginx.org/download/nginx-\${NGINX_VERSION}.tar.gz && \
+    tar xzf nginx-\${NGINX_VERSION}.tar.gz && \
+    mv nginx-\${NGINX_VERSION} nginx && \
+    rm nginx-\${NGINX_VERSION}.tar.gz
 
 # 下载 proxy_connect 模块
 RUN echo "==> 下载 ngx_http_proxy_connect_module..." && \
@@ -76,10 +78,10 @@ RUN echo "==> 下载 ngx_http_proxy_connect_module..." && \
 # 应用补丁
 WORKDIR /build/nginx
 RUN echo "==> 应用 proxy_connect 模块补丁..." && \
-    if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_${NGINX_VERSION}.patch ]; then \
-        patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_${NGINX_VERSION}.patch; \
-    elif [ -f /build/proxy_connect/patch/proxy_connect_${NGINX_VERSION}.patch ]; then \
-        patch -p1 < /build/proxy_connect/patch/proxy_connect_${NGINX_VERSION}.patch; \
+    if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_\${NGINX_VERSION}.patch ]; then \
+        patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_\${NGINX_VERSION}.patch; \
+    elif [ -f /build/proxy_connect/patch/proxy_connect_\${NGINX_VERSION}.patch ]; then \
+        patch -p1 < /build/proxy_connect/patch/proxy_connect_\${NGINX_VERSION}.patch; \
     else \
         echo "警告: 未找到匹配的补丁，尝试通用补丁"; \
         if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_1.31.0.patch ]; then \
@@ -113,7 +115,7 @@ RUN ./configure \
     --add-module=/build/proxy_connect
 
 # 编译
-RUN make -j$(nproc)
+RUN make -j\$(nproc)
 
 # 安装到临时目录
 RUN make install DESTDIR=/output
@@ -129,15 +131,17 @@ COPY --from=builder /output/usr/local/nginx /usr/local/nginx
 COPY --from=builder /output/var /var
 DOCKERFILE_EOF
 
-# 替换 Dockerfile 中的变量
-sed -i "s/\${PLATFORM}/${PLATFORM}/g" Dockerfile.nginx
-
 # 构建 Docker 镜像
 echo -e "${YELLOW}开始构建 Docker 镜像...${NC}"
 docker build \
     --build-arg NGINX_VERSION=${NGINX_VERSION} \
     -t nginx-static-${TARGET_ARCH} \
     -f Dockerfile.nginx .
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Docker 构建失败${NC}"
+    exit 1
+fi
 
 # 创建输出目录
 mkdir -p output/${TARGET_ARCH}
@@ -188,3 +192,7 @@ cd ../..
 echo -e "${GREEN}✅ 构建完成！${NC}"
 echo -e "${GREEN}产物: output/nginx-static-${TARGET_ARCH}-${NGINX_VERSION}.tar.gz${NC}"
 ls -lh output/*.tar.gz
+
+# 显示文件信息
+echo -e "${GREEN}二进制文件信息:${NC}"
+file output/${TARGET_ARCH}/sbin/nginx
