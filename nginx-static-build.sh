@@ -116,7 +116,7 @@ RUN ./configure \
     --add-module=/build/proxy_connect
 
 # 编译
-RUN make -j$(nproc)
+RUN make 
 
 # 安装到临时目录
 RUN make install DESTDIR=/output
