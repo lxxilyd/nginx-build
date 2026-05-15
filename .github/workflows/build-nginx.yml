@@ -51,10 +51,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Make script executable
-        run: chmod +x build-nginx-static.sh
+        run: chmod +x nginx-static-build
 
       - name: Build Nginx static binary
-        run: ./build-nginx-static.sh
+        run: ./nginx-static-build.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
