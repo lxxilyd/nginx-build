@@ -1,0 +1,123 @@
+name: Build Static Nginx
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      nginx_version:
+        description: 'Nginx version (e.g., 1.30.0, or "latest")'
+        required: false
+        default: 'latest'
+        type: string
+      build_amd64:
+        description: 'Build for amd64'
+        required: false
+        default: true
+        type: boolean
+      build_arm64:
+        description: 'Build for arm64'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build:
+    name: Build Nginx for ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: 
+          - amd64
+          - arm64
+        exclude:
+          # 根据输入排除不需要构建的架构
+          - arch: amd64
+          - arch: arm64
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
+      NGINX_VERSION: ${{ github.event.inputs.nginx_version || 'latest' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Make script executable
+        run: chmod +x build-nginx-static.sh
+
+      - name: Build Nginx static binary
+        run: ./build-nginx-static.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx-static-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
+          path: output/nginx-static-${{ matrix.arch }}-*.tar.gz
+          retention-days: 30
+          compression-level: 0
+
+  # 可选：创建 Release
+  create-release:
+    name: Create Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List and organize artifacts
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Get version
+        id: get_version
+        run: |
+          # 从文件名提取版本
+          VERSION=$(ls release-assets/*.tar.gz | head -1 | grep -oP 'nginx-static-[a-z]+-\K[0-9]+\.[0-9]+\.[0-9]+' || echo "latest")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nginx-static-${{ steps.get_version.outputs.version }}-${{ github.run_number }}
+          name: "Nginx Static Build v${{ steps.get_version.outputs.version }}"
+          body: |
+            ## Nginx 静态编译版本
+            
+            ### 版本信息
+            - Nginx 版本: `${{ steps.get_version.outputs.version }}`
+            - 构建时间: `${{ github.event.repository.updated_at }}`
+            
+            ### 包含架构
+            - ✅ amd64 (x86_64)
+            - ✅ arm64 (aarch64)
+            
+            ### 编译参数
+            ```bash
+            --prefix=/usr/local/nginx
+            --pid-path=/var/run/nginx/nginx.pid
+            --lock-path=/var/lock/nginx.lock
+            --user=nginx --group=nginx
+            --with-http_ssl_module
+            --with-http_flv_module
+            --with-http_stub_status_module
+            --with-http_gzip_static_module
+            --with-http_v2_module
+            --with-pcre (static)
+            --with-openssl (static)
+            --with-zlib (static)
+            --add-module=/build/proxy_connect
