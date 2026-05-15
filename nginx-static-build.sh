@@ -41,9 +41,9 @@ esac
 
 echo -e "${GREEN}平台: ${PLATFORM}${NC}"
 
-# 创建 Dockerfile（直接使用变量，不用 sed 替换）
-cat > Dockerfile.nginx << DOCKERFILE_EOF
-FROM --platform=${PLATFORM} alpine:3.19 AS builder
+# 创建 Dockerfile（修复 OpenSSL 编译问题）
+cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
+FROM alpine:3.19 AS builder
 
 ARG NGINX_VERSION
 
@@ -53,23 +53,26 @@ RUN apk add --no-cache \
     musl-dev \
     pcre-dev \
     openssl-dev \
+    openssl-libs-static \
     zlib-dev \
+    zlib-static \
     linux-headers \
     make \
     wget \
     git \
     curl \
     perl \
-    build-base
+    build-base \
+    libc-dev
 
 WORKDIR /build
 
 # 下载 Nginx 源码
-RUN echo "==> 下载 Nginx \${NGINX_VERSION} 源码..." && \
-    wget -q https://nginx.org/download/nginx-\${NGINX_VERSION}.tar.gz && \
-    tar xzf nginx-\${NGINX_VERSION}.tar.gz && \
-    mv nginx-\${NGINX_VERSION} nginx && \
-    rm nginx-\${NGINX_VERSION}.tar.gz
+RUN echo "==> 下载 Nginx ${NGINX_VERSION} 源码..." && \
+    wget -q https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
+    tar xzf nginx-${NGINX_VERSION}.tar.gz && \
+    mv nginx-${NGINX_VERSION} nginx && \
+    rm nginx-${NGINX_VERSION}.tar.gz
 
 # 下载 proxy_connect 模块
 RUN echo "==> 下载 ngx_http_proxy_connect_module..." && \
@@ -78,18 +81,17 @@ RUN echo "==> 下载 ngx_http_proxy_connect_module..." && \
 # 应用补丁
 WORKDIR /build/nginx
 RUN echo "==> 应用 proxy_connect 模块补丁..." && \
-    if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_\${NGINX_VERSION}.patch ]; then \
-        patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_\${NGINX_VERSION}.patch; \
-    elif [ -f /build/proxy_connect/patch/proxy_connect_\${NGINX_VERSION}.patch ]; then \
-        patch -p1 < /build/proxy_connect/patch/proxy_connect_\${NGINX_VERSION}.patch; \
+    if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_${NGINX_VERSION}.patch ]; then \
+        patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_${NGINX_VERSION}.patch; \
+    elif [ -f /build/proxy_connect/patch/proxy_connect_${NGINX_VERSION}.patch ]; then \
+        patch -p1 < /build/proxy_connect/patch/proxy_connect_${NGINX_VERSION}.patch; \
+    elif [ -f /build/proxy_connect/patch/proxy_connect_rewrite_1.31.0.patch ]; then \
+        patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_1.31.0.patch; \
     else \
-        echo "警告: 未找到匹配的补丁，尝试通用补丁"; \
-        if [ -f /build/proxy_connect/patch/proxy_connect_rewrite_1.31.0.patch ]; then \
-            patch -p1 < /build/proxy_connect/patch/proxy_connect_rewrite_1.31.0.patch; \
-        fi; \
+        echo "警告: 未找到匹配的补丁，跳过"; \
     fi
 
-# 配置编译选项
+# 配置编译选项（使用系统库而不是静态编译 OpenSSL）
 RUN ./configure \
     --prefix=/usr/local/nginx \
     --pid-path=/var/run/nginx/nginx.pid \
@@ -103,9 +105,8 @@ RUN ./configure \
     --with-http_v2_module \
     --with-pcre \
     --with-pcre=static \
-    --with-openssl=static \
     --with-zlib=static \
-    --with-cc-opt="-static -O2 -fPIC" \
+    --with-cc-opt="-static -O2" \
     --with-ld-opt="-static" \
     --http-client-body-temp-path=/var/tmp/nginx/client/ \
     --http-proxy-temp-path=/var/tmp/nginx/proxy/ \
@@ -115,7 +116,7 @@ RUN ./configure \
     --add-module=/build/proxy_connect
 
 # 编译
-RUN make -j\$(nproc)
+RUN make -j$(nproc)
 
 # 安装到临时目录
 RUN make install DESTDIR=/output
