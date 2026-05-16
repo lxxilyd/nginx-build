@@ -1,14 +1,52 @@
-name: Build and Release Static Nginx
+name: Auto Build and Release Static Nginx
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  schedule:
+    # 国际标准时间 (UTC) 00:00 对应北京时间 (CST) 08:00
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 依旧保留手动触发按钮
 
 jobs:
-  # 阶段一：并行构建
+  # 阶段一：版本比对检查
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.compare.outputs.should_build }}
+      nginx_ver: ${{ steps.compare.outputs.nginx_ver }}
+    steps:
+      - name: Get Latest Nginx Version from Official Site
+        id: nginx
+        run: |
+          VER=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ -z "$VER" ] && VER="1.31.0"
+          echo "LATEST_VER=$VER" >> $GITHUB_ENV
+          echo "nginx_ver=$VER" >> $GITHUB_OUTPUT
+
+      - name: Get Latest Release Tag from GitHub
+        id: github
+        run: |
+          # 获取最新的 Release Tag（去除开头的 v，例如 v1.31.0 -> 1.31.0）
+          LATEST_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -oP '"tag_name":\s*"v\K[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+
+      - name: Compare Versions
+        id: compare
+        run: |
+          echo "Nginx 官网最新版本: ${{ env.LATEST_VER }}"
+          echo "仓库当前 Release 版本: ${{ env.LATEST_TAG }}"
+          
+          if [ "${{ env.LATEST_VER }}" = "${{ env.LATEST_TAG }}" ]; then
+            echo "✅ 版本一致，无需更新。"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "🚀 检测到新版本！开始构建..."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+  # 阶段二：并行构建 (仅在 should_build 为 true 时触发)
   build:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -24,7 +62,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up QEMU
-        if: matrix.arch == 'arm64' # 只有 arm64 需要 QEMU 模拟
+        if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -35,23 +73,20 @@ jobs:
       - name: Run Build Script
         run: |
           chmod +x build.sh
-          # 将 matrix 中的 arch 作为参数传给脚本
+          # 将检测到的精确版本号直接作为第二个参数传给脚本，确保内外版本绝对一致
           ./build.sh ${{ matrix.arch }}
-          
-          # 提取版本号输出给当前 Job 记录
-          VER=$(ls output/nginx-*-portable-${{ matrix.arch }}.tar.gz | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          echo "JOB_VER=$VER" >> $GITHUB_ENV
 
       - name: Upload Temporary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nginx-tarball-${{ matrix.arch }}
+          name: nginx-static-${{ matrix.arch }}
           path: output/*.tar.gz
           retention-days: 1
 
-  # 阶段二：汇总并发布 Release
+  # 阶段三：汇总并发布 Release (仅在 should_build 为 true 时触发)
   release:
-    needs: build
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -59,32 +94,24 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 再次获取最新版本号，用来做 Tag 命名
-      - name: Get Version Name
-        run: |
-          VER=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          [ -z "$VER" ] && VER="1.31.0"
-          echo "RELEASE_VER=$VER" >> $GITHUB_ENV
-
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: nginx-tarball-*
-          merge-multiple: true # 把不同 job 的文件融到同一个 dist 目录下
+          pattern: nginx-static-*
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.RELEASE_VER }}
-          name: Nginx Static Portable v${{ env.RELEASE_VER }}
+          tag_name: v${{ needs.check-version.outputs.nginx_ver }}
+          name: Nginx Static v${{ needs.check-version.outputs.nginx_ver }}
           files: dist/*.tar.gz
           body: |
-            ## Nginx 绿色多架构静态链接版
-            - **Nginx 官方版本**: `${{ env.RELEASE_VER }}`
-            - **构建方式**: GitHub Actions Matrix 矩阵并行构建
+            ## Nginx 静态链接版
+            - **Nginx 官方版本**: `${{ needs.check-version.outputs.nginx_ver }}`
             - **包含架构**: amd64 (x86_64), arm64 (aarch64)
-            - **内置便捷脚本**: 解压后直接运行 `./start.sh` 即可一键拉起工作目录。
+            - **内置功能**: 解压后直接运行 `./start.sh` 即可一键启动录。
           draft: false
           prerelease: false
         env:

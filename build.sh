@@ -88,7 +88,7 @@ build_and_pack() {
     local arch=$1
     local platform=$2
     local target_dir="${OUTPUT_BASE}/${arch}"
-    local tar_name="nginx-${NGINX_VERSION}-portable-${arch}.tar.gz"
+    local tar_name="nginx-${NGINX_VERSION}-static-${arch}.tar.gz"
     
     echo -e "${YELLOW}正在构建 ${arch}...${NC}"
     docker build --platform "${platform}" --build-arg NGINX_VERSION="${NGINX_VERSION}" -t "nginx-p-${arch}" -f Dockerfile.nginx .
