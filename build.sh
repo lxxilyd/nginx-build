@@ -19,7 +19,7 @@ echo -e "${GREEN}检测到最新版本: ${NGINX_VERSION}${NC}"
 # 2. 环境清理
 OUTPUT_BASE="output"
 rm -rf "${OUTPUT_BASE}"
-mkdir -p "${OUTPUT_BASE}/amd64" "${OUTPUT_BASE}/arm64"
+mkdir -p "${OUTPUT_BASE}/$1"
 
 # 3. 编写 Dockerfile
 cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
