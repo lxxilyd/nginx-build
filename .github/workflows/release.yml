@@ -59,8 +59,8 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             platform: linux/arm64
-          - arch: armv7
-            platform: linux/arm/v7
+          # - arch: armv7
+          #   platform: linux/arm/v7
 
     steps:
       - name: Checkout Code
