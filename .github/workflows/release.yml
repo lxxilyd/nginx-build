@@ -28,8 +28,6 @@ jobs:
         id: github
         run: |
           # 获取最新的 Release Tag（去除开头的 v，例如 v1.31.0 -> 1.31.0）
-          LATEST = $(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest)
-          echo "LATEST=$LATEST"
           LATEST_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -oP '"tag_name":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
 
