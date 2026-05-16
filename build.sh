@@ -100,10 +100,21 @@ build_and_pack() {
     echo -e "${GREEN}完成: output/${tar_name}${NC}"
 }
 
-# 5. 执行
-build_and_pack "amd64" "linux/amd64"
-build_and_pack "arm64" "linux/arm64"
+# 5. 解析输入参数，执行单架构构建
+# 允许通过 ./build.sh amd64 或 ./build.sh arm64 调用
+ARCH_ARG=$1
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}构建成功！产物已包含 start.sh / stop.sh${NC}"
-echo -e "${GREEN}========================================${NC}"
+if [ "$ARCH_ARG" = "amd64" ]; then
+    build_and_pack "amd64" "linux/amd64"
+elif [ "$ARCH_ARG" = "arm64" ]; then
+    build_and_pack "arm64" "linux/arm64"
+else
+    echo -e "${RED}未指定有效架构，默认执行双架构本地构建...${NC}"
+    build_and_pack "amd64" "linux/amd64"
+    build_and_pack "arm64" "linux/arm64"
+fi
+
+# 6. 环境变量导出 (保持不变)
+if [ -n "$GITHUB_ACTIONS" ]; then
+    echo "NGINX_VER=${NGINX_VERSION}" >> $GITHUB_ENV
+fi
