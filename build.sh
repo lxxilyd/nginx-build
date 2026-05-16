@@ -108,10 +108,13 @@ if [ "$ARCH_ARG" = "amd64" ]; then
     build_and_pack "amd64" "linux/amd64"
 elif [ "$ARCH_ARG" = "arm64" ]; then
     build_and_pack "arm64" "linux/arm64"
+elif [ "$ARCH_ARG" = "armv7" ]; then
+    build_and_pack "armv7" "linux/arm/v7"
 else
-    echo -e "${RED}未指定有效架构，默认执行双架构本地构建...${NC}"
+    echo -e "${RED}未指定有效架构，默认执行多架构本地构建...${NC}"
     build_and_pack "amd64" "linux/amd64"
     build_and_pack "arm64" "linux/arm64"
+	build_and_pack "armv7" "linux/arm/v7"
 fi
 
 # 6. 环境变量导出 (保持不变)
