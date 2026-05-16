@@ -1,6 +1,8 @@
 name: Auto Build and Release Static Nginx
 
 on:
+  push: 
+    branches: ["main"]
   schedule:
     # 国际标准时间 (UTC) 00:00 对应北京时间 (CST) 08:00
     - cron: '0 0 * * *'
@@ -41,6 +43,7 @@ jobs:
           else
             echo "🚀 检测到新版本！开始构建..."
             echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "nginx_ver=${{ env.LATEST_VER }}" >> $GITHUB_OUTPUT
           fi
 
   # 阶段二：并行构建 (仅在 should_build 为 true 时触发)
@@ -104,8 +107,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.check-version.outputs.nginx_ver }}
-          name: Nginx Static v${{ needs.check-version.outputs.nginx_ver }}
+          tag_name: ${{ needs.check-version.outputs.nginx_ver }}
+          name: Nginx Static ${{ needs.check-version.outputs.nginx_ver }}
           files: dist/*.tar.gz
           body: |
             ## Nginx 静态链接版
