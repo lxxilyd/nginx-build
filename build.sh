@@ -24,7 +24,7 @@ mkdir -p "${OUTPUT_BASE}/amd64" "${OUTPUT_BASE}/arm64"
 # 3. 编写 Dockerfile
 cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
 FROM alpine:3.19 AS builder
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+# RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gcc musl-dev pcre-dev openssl-dev openssl-libs-static \
     zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar
 
