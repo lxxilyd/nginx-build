@@ -38,8 +38,8 @@ jobs:
         run: |
           mkdir -p dist
           # 使用通配符移动并重命名，方便发布
-          cp output/nginx-${{ env.DETECTED_VER }}.tar.gz dist/nginx-${{ env.DETECTED_VER }}-static-amd64.tar.gz
-          cp output/nginx-${{ env.DETECTED_VER }}.tar.gz dist/nginx-${{ env.DETECTED_VER }}-static-arm64.tar.gz
+          cp output/nginx-${{ env.DETECTED_VER }}*.tar.gz dist/nginx-${{ env.DETECTED_VER }}-static-amd64.tar.gz
+          cp output/nginx-${{ env.DETECTED_VER }}*.tar.gz dist/nginx-${{ env.DETECTED_VER }}-static-arm64.tar.gz
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
