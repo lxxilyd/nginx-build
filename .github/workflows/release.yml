@@ -4,12 +4,10 @@ on:
   push: 
     branches: ["main"]
   schedule:
-    # 国际标准时间 (UTC) 00:00 对应北京时间 (CST) 08:00
-    - cron: '0 0 * * *'
-  workflow_dispatch: # 依旧保留手动触发按钮
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
-  # 阶段一：版本比对检查
   check-version:
     runs-on: ubuntu-latest
     outputs:
@@ -27,7 +25,6 @@ jobs:
       - name: Get Latest Release Tag from GitHub
         id: github
         run: |
-          # 获取最新的 Release Tag（去除开头的 v，例如 v1.31.0 -> 1.31.0）
           LATEST_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -oP '"tag_name":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
 
@@ -46,7 +43,6 @@ jobs:
             echo "nginx_ver=${{ env.LATEST_VER }}" >> $GITHUB_OUTPUT
           fi
 
-  # 阶段二：并行构建 (仅在 should_build 为 true 时触发)
   build:
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
@@ -78,7 +74,6 @@ jobs:
       - name: Run Build Script
         run: |
           chmod +x build.sh
-          # 将检测到的精确版本号直接作为第二个参数传给脚本，确保内外版本绝对一致
           ./build.sh ${{ matrix.arch }}
 
       - name: Upload Temporary Artifact
@@ -88,7 +83,6 @@ jobs:
           path: output/*.tar.gz
           retention-days: 1
 
-  # 阶段三：汇总并发布 Release (仅在 should_build 为 true 时触发)
   release:
     needs: [check-version, build]
     if: needs.check-version.outputs.should_build == 'true'

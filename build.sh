@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# 颜色输出
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -11,17 +10,14 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Nginx 构建工具 (含一键启动脚本)${NC}"
 echo -e "${GREEN}========================================${NC}"
 
-# 1. 自动获取最新版本号
 NGINX_VERSION=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 [ -z "$NGINX_VERSION" ] && NGINX_VERSION="1.31.0"
 echo -e "${GREEN}检测到最新版本: ${NGINX_VERSION}${NC}"
 
-# 2. 环境清理
 OUTPUT_BASE="output"
 rm -rf "${OUTPUT_BASE}"
 mkdir -p "${OUTPUT_BASE}/$1"
 
-# 3. 编写 Dockerfile
 cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
 FROM alpine:3.19 AS builder
 # RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
@@ -58,12 +54,10 @@ RUN ./configure \
 
 RUN make -j$(nproc) && make install DESTDIR=/output
 
-# --- 关键步骤：生成便捷脚本 ---
 WORKDIR /output/usr/local/nginx
 RUN mkdir -p logs temp/client_body temp/proxy temp/fastcgi temp/uwsgi temp/scgi && \
     chmod -R 777 logs temp
 
-# 创建一键启动脚本
 RUN echo '#!/bin/sh' > start.sh && \
     echo 'BASE_DIR=$(cd "$(dirname "$0")"; pwd)' >> start.sh && \
     echo 'echo "正在启动 Nginx (目录: $BASE_DIR)..."' >> start.sh && \
@@ -71,7 +65,6 @@ RUN echo '#!/bin/sh' > start.sh && \
     echo 'echo "启动成功！访问: http://localhost:80"' >> start.sh && \
     chmod +x start.sh
 
-# 创建一键停止脚本
 RUN echo '#!/bin/sh' > stop.sh && \
     echo 'BASE_DIR=$(cd "$(dirname "$0")"; pwd)' >> stop.sh && \
     echo '$BASE_DIR/sbin/nginx -p "$BASE_DIR" -s stop' >> stop.sh && \
@@ -83,7 +76,6 @@ COPY --from=builder /output/usr/local/nginx /usr/local/nginx
 WORKDIR /usr/local/nginx
 DOCKERFILE_EOF
 
-# 4. 构建与打包函数
 build_and_pack() {
     local arch=$1
     local platform=$2
@@ -100,8 +92,6 @@ build_and_pack() {
     echo -e "${GREEN}完成: output/${tar_name}${NC}"
 }
 
-# 5. 解析输入参数，执行单架构构建
-# 允许通过 ./build.sh amd64 或 ./build.sh arm64 调用
 ARCH_ARG=$1
 
 if [ "$ARCH_ARG" = "amd64" ]; then
@@ -117,7 +107,6 @@ else
 	build_and_pack "armv7" "linux/arm/v7"
 fi
 
-# 6. 环境变量导出 (保持不变)
 if [ -n "$GITHUB_ACTIONS" ]; then
     echo "NGINX_VER=${NGINX_VERSION}" >> $GITHUB_ENV
 fi
