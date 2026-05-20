@@ -22,12 +22,16 @@ cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
 FROM alpine:3.19 AS builder
 # RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gcc musl-dev pcre-dev openssl-dev openssl-libs-static \
-    zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar
+    zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar perl
 
 WORKDIR /build
 ARG NGINX_VERSION
 RUN wget -q https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
     tar xzf nginx-${NGINX_VERSION}.tar.gz && mv nginx-${NGINX_VERSION} nginx
+
+RUN wget -q https://github.com/quictls/openssl/archive/refs/heads/openssl-3.1.5+quic.tar.gz && \
+    tar xzf openssl-3.1.5+quic.tar.gz && \
+    mv openssl-openssl-3.1.5-quic quictls
 
 WORKDIR /build/nginx
 RUN ./configure \
@@ -63,6 +67,8 @@ RUN ./configure \
     --with-stream_ssl_module \
     --with-stream_realip_module \
     --with-stream_ssl_preread_module \
+	--with-http_v3_module \
+	--with-openssl=/build/quictls \
     --with-cc-opt="-static -O3 -fstack-protector-strong -fPIC" \
     --with-ld-opt="-static"
 
@@ -95,6 +101,7 @@ build_and_pack() {
     local platform=$2
     local target_dir="${OUTPUT_BASE}/${arch}"
     local tar_name="nginx-${NGINX_VERSION}-static-${arch}.tar.gz"
+	mkdir -p "${OUTPUT_BASE}/${arch}"
     
     echo -e "${YELLOW}正在构建 ${arch}...${NC}"
     docker build --platform "${platform}" --build-arg NGINX_VERSION="${NGINX_VERSION}" -t "nginx-p-${arch}" -f Dockerfile.nginx .
