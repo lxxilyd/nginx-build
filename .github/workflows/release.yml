@@ -100,6 +100,31 @@ jobs:
           pattern: nginx-static-*
           merge-multiple: true
 
+      - name: Fetch and Parse Nginx Changes
+        id: parse_nginx_changes
+        run: |
+          VER="${{ needs.check-version.outputs.nginx_ver }}"
+          echo "正在同步并解析 Nginx $VER 的官方变更日志..."
+          
+          curl -s https://nginx.org/en/CHANGES -o NGINX_CHANGES_RAW
+          
+          tr -d '\r' < NGINX_CHANGES_RAW > NGINX_CHANGES
+          
+          CHANGES_CONTENT=$(awk -v ver="$VER" '
+            BEGIN { found = 0 }
+            $0 ~ "Changes with nginx " ver { found = 1; print; next }
+            found && $0 ~ "Changes with nginx " { found = 0; exit }
+            found { print }
+          ' NGINX_CHANGES)
+
+          if [ -z "$CHANGES_CONTENT" ]; then
+             CHANGES_CONTENT="* 暂未在官方 CHANGES 中找到该版本的详细变更，请参考官网最新公告。"
+          fi
+
+          echo "nginx_release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -111,6 +136,14 @@ jobs:
             - **Nginx 官方版本**: `${{ needs.check-version.outputs.nginx_ver }}`
             - **包含架构**: amd64 (x86_64), arm64 (aarch64)
             - **内置功能**: 解压后直接运行 `./start.sh` 即可一键启动录。
+            - **功能内置**: 解压后直接运行 `./start.sh` 即可一键启动。
+            
+            ---
+            
+            ### 📜 Nginx 官方变更日志 (${{ needs.check-version.outputs.nginx_ver }})
+            ```text
+            ${{ steps.parse_nginx_changes.outputs.nginx_release_notes }}
+            ```
           draft: false
           prerelease: false
         env:
