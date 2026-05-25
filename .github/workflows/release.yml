@@ -126,15 +126,15 @@ jobs:
           VER="${{ needs.check-version.outputs.nginx_ver }}"
           
           cat << 'EOF' > release_body.md
-          ## Nginx 静态链接版 (Static Release)
+          ## Nginx 静态链接版
           
-          - **Nginx 官方版本**: ${VER}
+          - **Nginx 官方版本**: ${{ needs.check-version.outputs.nginx_ver }}
           - **包含架构**: amd64 (x86_64), arm64 (aarch64), armv7
           - **功能内置**: 解压后直接运行 `./start.sh` 即可一键启动。
           
           ---
           
-          ### 📜 Nginx 官方变更日志 (${VER})
+          ### 📜 Nginx 官方变更日志 (${{ needs.check-version.outputs.nginx_ver }})
           ```text
           ${{ steps.parse_nginx_changes.outputs.nginx_release_notes }}
           ```
