@@ -7,31 +7,47 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Nginx 构建工具 (含一键启动脚本)${NC}"
+echo -e "${GREEN}Nginx 全自动静态构建工具 (Latest)${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 NGINX_VERSION=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-[ -z "$NGINX_VERSION" ] && NGINX_VERSION="1.31.0"
-echo -e "${GREEN}检测到最新版本: ${NGINX_VERSION}${NC}"
+[ -z "$NGINX_VERSION" ] && NGINX_VERSION="1.31.2"
+echo -e "${GREEN}检测到最新 Nginx 版本: ${NGINX_VERSION}${NC}"
+
+echo -e "${YELLOW}正在获取最新 quictls 版本号...${NC}"
+QUICTLS_TAG=$(curl -s https://api.github.com/repos/quictls/openssl/releases/latest | grep -oP '"tag_name": "\K[^"]+')
+[ -z "$QUICTLS_TAG" ] && QUICTLS_TAG="openssl-3.3.0-quic1"
+echo -e "${GREEN}检测到最新 quictls 版本: ${QUICTLS_TAG}${NC}"
+
+echo -e "${YELLOW}正在获取最新 PCRE2 版本号...${NC}"
+PCRE_VERSION=$(curl -s https://api.github.com/repos/PCRE2Project/pcre2/releases/latest | grep -oP '"tag_name": "pcre2-\K[0-9]+\.[0-9]+')
+[ -z "$PCRE_VERSION" ] && PCRE_VERSION="10.45" # 备用版本
+echo -e "${GREEN}检测到最新 PCRE2 版本: ${PCRE_VERSION}${NC}"
 
 OUTPUT_BASE="output"
 rm -rf "${OUTPUT_BASE}"
 mkdir -p "${OUTPUT_BASE}/$1"
 
 cat > Dockerfile.nginx << 'DOCKERFILE_EOF'
-FROM alpine:3.19 AS builder
-# RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gcc musl-dev pcre-dev openssl-dev openssl-libs-static \
-    zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar perl
+FROM alpine:latest AS builder
+
+ARG NGINX_VERSION
+ARG QUICTLS_TAG
+ARG PCRE_VERSION
+
+RUN apk add --no-cache gcc musl-dev zlib-dev zlib-static linux-headers make wget curl build-base libc-dev tar perl
 
 WORKDIR /build
-ARG NGINX_VERSION
-RUN wget -q https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
-    tar xzf nginx-${NGINX_VERSION}.tar.gz && mv nginx-${NGINX_VERSION} nginx
 
-RUN wget -q https://github.com/quictls/openssl/archive/refs/heads/openssl-3.1.5+quic.tar.gz && \
-    tar xzf openssl-3.1.5+quic.tar.gz && \
-    mv openssl-openssl-3.1.5-quic quictls
+RUN wget -q "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" && \
+    tar xzf "nginx-${NGINX_VERSION}.tar.gz" && mv "nginx-${NGINX_VERSION}" nginx
+
+RUN wget -q "https://github.com/quictls/openssl/archive/refs/tags/${QUICTLS_TAG}.tar.gz" && \
+    tar xzf "${QUICTLS_TAG}.tar.gz" && \
+    mv openssl-openssl-* quictls
+
+RUN wget -q "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz" && \
+    tar xzf "pcre2-${PCRE_VERSION}.tar.gz" && mv "pcre2-${PCRE_VERSION}" pcre
 
 WORKDIR /build/nginx
 RUN ./configure \
@@ -49,8 +65,6 @@ RUN ./configure \
     --http-scgi-temp-path=temp/scgi \
     --with-threads \
     --with-file-aio \
-    --with-pcre \
-    --with-pcre-jit \
     --with-http_ssl_module \
     --with-http_v2_module \
     --with-http_realip_module \
@@ -67,8 +81,10 @@ RUN ./configure \
     --with-stream_ssl_module \
     --with-stream_realip_module \
     --with-stream_ssl_preread_module \
-	--with-http_v3_module \
-	--with-openssl=/build/quictls \
+    --with-http_v3_module \
+    --with-openssl=/build/quictls \
+    --with-pcre=/build/pcre \
+    --with-pcre-jit \
     --with-cc-opt="-static -O3 -fstack-protector-strong -fPIC" \
     --with-ld-opt="-static"
 
@@ -91,7 +107,7 @@ RUN echo '#!/bin/sh' > stop.sh && \
     echo 'echo "Nginx 已停止。"' >> stop.sh && \
     chmod +x stop.sh
 
-FROM alpine:3.19
+FROM alpine:latest
 COPY --from=builder /output/usr/local/nginx /usr/local/nginx
 WORKDIR /usr/local/nginx
 DOCKERFILE_EOF
@@ -101,10 +117,14 @@ build_and_pack() {
     local platform=$2
     local target_dir="${OUTPUT_BASE}/${arch}"
     local tar_name="nginx-${NGINX_VERSION}-static-${arch}.tar.gz"
-	mkdir -p "${OUTPUT_BASE}/${arch}"
+    mkdir -p "${OUTPUT_BASE}/${arch}"
     
     echo -e "${YELLOW}正在构建 ${arch}...${NC}"
-    docker build --platform "${platform}" --build-arg NGINX_VERSION="${NGINX_VERSION}" -t "nginx-p-${arch}" -f Dockerfile.nginx .
+    docker build --platform "${platform}" \
+                 --build-arg NGINX_VERSION="${NGINX_VERSION}" \
+                 --build-arg QUICTLS_TAG="${QUICTLS_TAG}" \
+                 --build-arg PCRE_VERSION="${PCRE_VERSION}" \
+                 -t "nginx-p-${arch}" -f Dockerfile.nginx .
     
     echo -e "${YELLOW}提取并生成压缩包...${NC}"
     docker run --rm --platform "${platform}" "nginx-p-${arch}" tar -C /usr/local/nginx -cf - . | tar -C "${target_dir}" -xf -
