@@ -146,7 +146,7 @@ jobs:
           if gh release view "$VER" >/dev/null 2>&1; then
             echo "🔄 检测到 Tag $VER 已存在！正在执行覆盖更新流程..."
             
-            gh release edit "$VER" --notes-file release_body.md
+            gh release edit "$VER" --notes-file release_body.md --draft=false
             
             gh release upload "$VER" dist/*.tar.gz --clobber
             
